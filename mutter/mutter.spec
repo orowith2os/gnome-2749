@@ -38,7 +38,7 @@ Patch4:        3080.patch
 Patch5:        3085.patch
 Patch6:        enable-vrr-setting.patch
 
-https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/2749
+# https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/2749
 Patch7:        2749.patch
 
 BuildRequires: pkgconfig(gobject-introspection-1.0) >= 1.41.0
