@@ -1,0 +1,67 @@
+From 7dee3dd9284352413757566a6b73ea8b696bd470 Mon Sep 17 00:00:00 2001
+From: Daniel van Vugt <daniel.van.vugt@canonical.com>
+Date: Thu, 8 Dec 2022 17:52:09 +0800
+Subject: [PATCH] onscreen-native: Don't try to use a failed secondary GPU's
+ EGL context
+
+NVIDIA GBM will fail to create a gbm_surface if it's the secondary
+GPU (mutter#2166, mutter#2182), but it will still succeed in creating
+a surfaceless EGL context during initialization. This means we're left
+with `has_EGL_EXT_image_dma_buf_import_modifiers` being TRUE so it falls
+back to `copy_shared_framebuffer_primary_gpu` which has never worked on
+NVIDIA GBM (some combination of corruption from `glBlitFramebuffer` leads
+the subsequent swap buffers to crash - FIXME either in mutter or in the
+NVIDIA driver).
+
+So when we detect the NVIDIA GBM initialization failure, reset
+`has_EGL_EXT_image_dma_buf_import_modifiers` to FALSE so it doesn't
+try to take the broken path. This allows us to remove the old workaround
+(the `secondary_gpu_state->egl_surface == EGL_NO_SURFACE` check) from
+`copy_shared_framebuffer_primary_gpu` which was technically incorrect
+and preventing DisplayLink from doing GPU copies (since mutter 42.1).
+
+Fixes: https://gitlab.gnome.org/GNOME/mutter/-/issues/2551
+---
+ src/backends/native/meta-onscreen-native.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/src/backends/native/meta-onscreen-native.c b/src/backends/native/meta-onscreen-native.c
+index b3f53b4aaac..f0e67c322d6 100644
+--- a/src/backends/native/meta-onscreen-native.c
++++ b/src/backends/native/meta-onscreen-native.c
+@@ -719,8 +719,7 @@ copy_shared_framebuffer_primary_gpu (CoglOnscreen                        *onscre
+   COGL_TRACE_BEGIN_SCOPED (CopySharedFramebufferPrimaryGpu,
+                            "FB Copy (primary GPU)");
+ 
+-  if (!secondary_gpu_state ||
+-      secondary_gpu_state->egl_surface == EGL_NO_SURFACE)
++  if (!secondary_gpu_state)
+     return NULL;
+ 
+   primary_gpu = meta_renderer_native_get_primary_gpu (renderer_native);
+@@ -2104,7 +2103,9 @@ init_secondary_gpu_state (MetaRendererNative  *renderer_native,
+ {
+   MetaOnscreenNative *onscreen_native = META_ONSCREEN_NATIVE (onscreen);
+   MetaGpu *gpu = meta_crtc_get_gpu (onscreen_native->crtc);
++  MetaGpuKms *primary_gpu;
+   MetaRendererNativeGpuData *renderer_gpu_data;
++  MetaRendererNativeGpuData *primary_gpu_data;
+   g_autoptr (GError) local_error = NULL;
+ 
+   renderer_gpu_data = meta_renderer_native_get_gpu_data (renderer_native,
+@@ -2124,6 +2125,12 @@ init_secondary_gpu_state (MetaRendererNative  *renderer_native,
+                  "secondary monitor may be slow to update.",
+                  local_error->message);
+ 
++      primary_gpu = meta_renderer_native_get_primary_gpu (renderer_native);
++      primary_gpu_data =
++        meta_renderer_native_get_gpu_data (renderer_native, primary_gpu);
++      primary_gpu_data->secondary.has_EGL_EXT_image_dma_buf_import_modifiers =
++        FALSE;
++
+       renderer_gpu_data->secondary.copy_mode =
+         META_SHARED_FRAMEBUFFER_COPY_MODE_ZERO;
+ 
+-- 
+GitLab
+
